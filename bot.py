@@ -125,6 +125,7 @@ def button_editor_kb(bid):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✏️ Изменить название", callback_data=f"be_label:{bid}")],
         [InlineKeyboardButton("📝 Изменить текст", callback_data=f"be_text:{bid}")],
+        [InlineKeyboardButton("🖼️ Добавить/изменить картинку", callback_data=f"be_photo:{bid}")],
         [InlineKeyboardButton("🎥 Добавить/изменить видео", callback_data=f"be_video:{bid}")],
         [InlineKeyboardButton("➕ Добавить вложенную кнопку", callback_data=f"be_add:{bid}")],
         [InlineKeyboardButton("🗑 Удалить кнопку", callback_data=f"be_del:{bid}")],
@@ -182,18 +183,42 @@ async def admin(update,context):
     await update.message.reply_text("⚙️ Админ-панель",reply_markup=kb)
 
 async def show_button(update, context, b, edit=False):
-    uid=update.effective_user.id
-    text=button_content_text(b)
-    if not text: text=b["label"]
-    markup=render_button(b)
-    if edit:
-        try: await update.callback_query.edit_message_text(text,reply_markup=markup)
-        except Exception: await update.callback_query.message.reply_text(text,reply_markup=markup)
+    text = button_content_text(b)
+    markup = render_button(b)
+    target = update.callback_query.message if edit else update.message
+
+    if text:
+        if edit:
+            try:
+                await update.callback_query.edit_message_text(text, reply_markup=markup)
+            except Exception:
+                await target.reply_text(text, reply_markup=markup)
+        else:
+            await target.reply_text(text, reply_markup=markup)
+        if b.get("photo"):
+            try:
+                await target.reply_photo(b["photo"])
+            except Exception:
+                pass
+        if b.get("video"):
+            try:
+                await target.reply_video(b["video"])
+            except Exception:
+                pass
     else:
-        await update.message.reply_text(text,reply_markup=markup)
-    if b.get("video"):
-        try: await (update.callback_query.message if edit else update.message).reply_video(b["video"])
-        except Exception: pass
+        # Text is optional. If absent, media (if any) carries the button keyboard.
+        if b.get("photo"):
+            try:
+                await target.reply_photo(b["photo"], reply_markup=markup)
+            except Exception:
+                await target.reply_text(" ", reply_markup=markup)
+        elif b.get("video"):
+            try:
+                await target.reply_video(b["video"], reply_markup=markup)
+            except Exception:
+                await target.reply_text(" ", reply_markup=markup)
+        else:
+            await target.reply_text(" ", reply_markup=markup)
 
 async def cb(update,context):
     q=update.callback_query; await q.answer(); uid=q.from_user.id; d=q.data
@@ -308,7 +333,9 @@ async def cb(update,context):
         if d.startswith("be_label:"):
             bid=d.split(":",1)[1]; admin_state[uid]={"step":"button_label_edit","button_id":bid}; await q.edit_message_text("Введите новое название кнопки:"); return
         if d.startswith("be_text:"):
-            bid=d.split(":",1)[1]; admin_state[uid]={"step":"button_text","button_id":bid}; await q.edit_message_text("Отправьте новый текст кнопки:"); return
+            bid=d.split(":",1)[1]; admin_state[uid]={"step":"button_text","button_id":bid}; await q.edit_message_text("Відправте новий текст або /skip, щоб залишити кнопку без тексту:"); return
+        if d.startswith("be_photo:"):
+            bid=d.split(":",1)[1]; admin_state[uid]={"step":"button_photo","button_id":bid}; await q.edit_message_text("Відправте картинку або /skip, щоб видалити картинку:"); return
         if d.startswith("be_video:"):
             bid=d.split(":",1)[1]; admin_state[uid]={"step":"button_video","button_id":bid}; await q.edit_message_text("Отправьте видео для этой кнопки. Можно MP4/Telegram video:"); return
         if d.startswith("be_del:"):
@@ -372,9 +399,17 @@ async def cb(update,context):
 async def finish_button(uid, message):
     st=admin_state.get(uid,{})
     bs=load_buttons(); bid=next_id(bs)
-    bs.append({"id":bid,"label":st["label"],"parent_id":st.get("parent_id"),"text":"","video":None,"active":True})
+    bs.append({
+        "id":bid,
+        "label":st["label"],
+        "parent_id":st.get("parent_id"),
+        "text":st.get("text",""),
+        "photo":st.get("photo"),
+        "video":None,
+        "active":True
+    })
     save_buttons(bs); admin_state.pop(uid,None)
-    await message.reply_text(f"✅ Кнопка создана. ID: {bid}\nТеперь её можно открыть через «Управление кнопками» и добавить текст, видео и вложенные кнопки.")
+    await message.reply_text(f"✅ Кнопка создана. ID: {bid}")
 
 async def text(update,context):
     uid=update.effective_user.id; msg=update.message
@@ -392,7 +427,15 @@ async def text(update,context):
             save_promos(ps); admin_state.pop(uid,None); await msg.reply_text("✅ Акцію оновлено."); return
 
         if step=="button_label":
-            st["label"]=msg.text.strip(); await finish_button(uid,msg); return
+            st["label"]=msg.text.strip()
+            st["step"]="button_text_create"
+            await msg.reply_text("📝 Введіть текст для кнопки або /skip, якщо текст не потрібен:")
+            return
+        if step=="button_text_create":
+            st["text"]=msg.text
+            st["step"]="button_photo_create"
+            await msg.reply_text("🖼️ Додайте картинку або /skip, якщо картинка не потрібна:")
+            return
         if step=="button_label_edit":
             bid=st["button_id"]; bs=load_buttons(); found=False
             for b in bs:
@@ -404,6 +447,9 @@ async def text(update,context):
             for b in bs:
                 if str(b.get("id"))==str(bid): b["text"]=msg.text; found=True
             save_buttons(bs); admin_state.pop(uid,None); await msg.reply_text("✅ Текст сохранён." if found else "❌ Кнопка не найдена."); return
+        if step in ("button_photo_create","button_photo"):
+            await msg.reply_text("Надішліть картинку або /skip.")
+            return
         if step=="button_delete":
             bid=msg.text.strip(); bs=load_buttons(); ids={bid}; changed=True
             while changed:
@@ -443,6 +489,19 @@ async def photo(update,context):
     uid=update.effective_user.id
     if not is_admin(uid) or uid not in admin_state: return
     st=admin_state[uid]
+    if st.get("step")=="button_photo_create":
+        st["photo"]=update.message.photo[-1].file_id
+        await finish_button(uid, update.message)
+        return
+    if st.get("step")=="button_photo":
+        bs=load_buttons(); bid=st["button_id"]; found=False
+        for b in bs:
+            if str(b.get("id"))==str(bid):
+                b["photo"]=update.message.photo[-1].file_id
+                found=True
+        save_buttons(bs); admin_state.pop(uid,None)
+        await update.message.reply_text("✅ Картинка кнопки сохранена." if found else "❌ Кнопка не найдена.")
+        return
     if st.get("step")!="photo": return
     d=data(); pid=next_id(d["products"])
     d["products"].append({"id":pid,"name":st["name"],"category":st["category"],"description":st["description"],"photo":update.message.photo[-1].file_id,"active":True})
@@ -462,12 +521,36 @@ async def video(update,context):
 
 async def skip(update,context):
     uid=update.effective_user.id
-    if is_admin(uid) and admin_state.get(uid,{}).get("step")=="photo":
-        st=admin_state[uid]; d=data(); pid=next_id(d["products"])
+    if not is_admin(uid): return
+    st=admin_state.get(uid,{})
+    if st.get("step")=="button_text_create":
+        st["text"]=""; st["step"]="button_photo_create"
+        await update.message.reply_text("🖼️ Додайте картинку або /skip, якщо картинка не потрібна:")
+        return
+    if st.get("step")=="button_photo_create":
+        st["photo"]=None
+        await finish_button(uid, update.message)
+        return
+    if st.get("step")=="button_text":
+        bid=st["button_id"]; bs=load_buttons()
+        for b in bs:
+            if str(b.get("id"))==str(bid): b["text"]=""
+        save_buttons(bs); admin_state.pop(uid,None)
+        await update.message.reply_text("✅ Текст кнопки очищено.")
+        return
+    if st.get("step")=="button_photo":
+        bid=st["button_id"]; bs=load_buttons()
+        for b in bs:
+            if str(b.get("id"))==str(bid): b["photo"]=None
+        save_buttons(bs); admin_state.pop(uid,None)
+        await update.message.reply_text("✅ Картинку кнопки видалено.")
+        return
+    if st.get("step")=="photo":
+        d=data(); pid=next_id(d["products"])
         d["products"].append({"id":pid,"name":st["name"],"category":st["category"],"description":st["description"],"photo":None,"active":True})
         save(d); admin_state.pop(uid,None); await update.message.reply_text(f"✅ Товар добавлен. ID: {pid}"); return
-    if is_admin(uid) and admin_state.get(uid,{}).get("step")=="ad_video":
-        st=admin_state[uid]; st["video"]=None; st["step"]="ad_time"; await update.message.reply_text("Введите время ежедневной рассылки в формате HH:MM по Варшаве, например 20:00:")
+    if st.get("step")=="ad_video":
+        st["video"]=None; st["step"]="ad_time"; await update.message.reply_text("Введите время ежедневной рассылки в формате HH:MM по Варшаве, например 20:00:")
 
 async def send_lead(update,context,f):
     uid=update.effective_user.id; manager_id=manager_chat_id()
