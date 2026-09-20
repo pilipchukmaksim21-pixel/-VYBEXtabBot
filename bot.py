@@ -310,12 +310,15 @@ async def handle_admin_skip_callback(q, context):
 
     await q.answer("Зараз тут немає поля, яке можна пропустити.", show_alert=True)
 
-async def cb(update,context):
+async def cb(update, context):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    d = q.data
 
-    if q.data == "admin_skip":
+    if d == "admin_skip":
         await handle_admin_skip_callback(q, context)
         return
-    q=update.callback_query; await q.answer(); uid=q.from_user.id; d=q.data
     if d=="admin_panel":
         if not is_admin(uid):
             return
