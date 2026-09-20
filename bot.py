@@ -220,7 +220,101 @@ async def show_button(update, context, b, edit=False):
         else:
             await target.reply_text(" ", reply_markup=markup)
 
+async def handle_admin_skip_callback(q, context):
+    uid = q.from_user.id
+    if not is_admin(uid):
+        await q.answer("Недоступно", show_alert=True)
+        return
+    st = admin_state.get(uid, {})
+    step = st.get("step")
+
+    if step == "button_text_create":
+        st["text"] = ""
+        st["step"] = "button_photo_create"
+        await q.edit_message_text(
+            "🖼️ Додайте картинку або натисніть «Пропустити».",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Пропустити", callback_data="admin_skip")]])
+        )
+        return
+
+    if step == "button_photo_create":
+        st["photo"] = None
+        await finish_button(uid, q.message)
+        return
+
+    if step == "button_text":
+        bid = st["button_id"]
+        bs = load_buttons()
+        for b in bs:
+            if str(b.get("id")) == str(bid):
+                b["text"] = ""
+        save_buttons(bs)
+        admin_state.pop(uid, None)
+        await q.edit_message_text("✅ Текст кнопки пропущено.")
+        return
+
+    if step == "button_photo":
+        bid = st["button_id"]
+        bs = load_buttons()
+        for b in bs:
+            if str(b.get("id")) == str(bid):
+                b["photo"] = None
+        save_buttons(bs)
+        admin_state.pop(uid, None)
+        await q.edit_message_text("✅ Картинку кнопки пропущено.")
+        return
+
+    if step == "promo_text":
+        st["text"] = ""
+        st["step"] = "promo_photo"
+        await q.edit_message_text(
+            "🖼️ Додайте картинку акції або натисніть «Пропустити».",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Пропустити", callback_data="admin_skip")]])
+        )
+        return
+
+    if step == "promo_photo":
+        st["photo"] = None
+        st["step"] = "promo_video"
+        await q.edit_message_text(
+            "🎥 Додайте відео акції або натисніть «Пропустити».",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Пропустити", callback_data="admin_skip")]])
+        )
+        return
+
+    if step == "promo_video":
+        st["video"] = None
+        # Continue to existing promo save/finalization flow.
+        if "promo_time" in globals():
+            st["step"] = "promo_time"
+            await q.edit_message_text("Введіть час акції у форматі HH:MM або натисніть «Пропустити».",
+                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Пропустити", callback_data="admin_skip")]]))
+        else:
+            # Fall back to the existing next step if the project uses a different name.
+            st["step"] = "ad_time"
+            await q.edit_message_text("Введіть час або натисніть «Пропустити».",
+                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Пропустити", callback_data="admin_skip")]]))
+        return
+
+    if step in ("promo_time", "ad_time"):
+        # Keep the existing stored/default time if present; otherwise use 20:00.
+        st["time"] = st.get("time") or "20:00"
+        # Try to continue through the existing promo save logic.
+        if "save_promo_from_state" in globals():
+            await save_promo_from_state(uid, q.message)
+        else:
+            # If the existing handler expects a different final step, let it know the time.
+            st["step"] = "promo_save"
+            await q.edit_message_text("✅ Пропущено. Акцію можна зберегти через меню.")
+        return
+
+    await q.answer("Зараз тут немає поля, яке можна пропустити.", show_alert=True)
+
 async def cb(update,context):
+
+    if q.data == "admin_skip":
+        await handle_admin_skip_callback(q, context)
+        return
     q=update.callback_query; await q.answer(); uid=q.from_user.id; d=q.data
     if d=="admin_panel":
         if not is_admin(uid):
@@ -429,7 +523,7 @@ async def text(update,context):
         if step=="button_label":
             st["label"]=msg.text.strip()
             st["step"]="button_text_create"
-            await msg.reply_text("📝 Введіть текст для кнопки або /skip, якщо текст не потрібен:")
+            await msg.reply_text("📝 Введіть текст для кнопки або натисніть «Пропустити»:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Пропустити", callback_data="admin_skip")]]))
             return
         if step=="button_text_create":
             st["text"]=msg.text
@@ -525,7 +619,7 @@ async def skip(update,context):
     st=admin_state.get(uid,{})
     if st.get("step")=="button_text_create":
         st["text"]=""; st["step"]="button_photo_create"
-        await update.message.reply_text("🖼️ Додайте картинку або /skip, якщо картинка не потрібна:")
+        await update.message.reply_text("🖼️ Додайте картинку або натисніть «Пропустити»:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Пропустити", callback_data="admin_skip")]]))
         return
     if st.get("step")=="button_photo_create":
         st["photo"]=None
