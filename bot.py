@@ -13,6 +13,7 @@ DATA = Path("catalog.json")
 USERS = Path("users.json")
 BUTTONS = Path("buttons.json")
 BROADCAST = Path("broadcast.json")
+PROMOS = Path("promos.json")
 TZ = ZoneInfo("Europe/Warsaw")
 logging.basicConfig(level=logging.INFO)
 
@@ -25,6 +26,7 @@ LANGS = {
 langs={}
 forms={}
 admin_state={}
+carts={}
 
 
 def ensure_file(path, default):
@@ -65,6 +67,13 @@ def load_broadcast():
 
 
 def save_broadcast(d): BROADCAST.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8")
+
+def load_promos():
+    ensure_file(PROMOS, [])
+    try: return json.loads(PROMOS.read_text(encoding="utf-8"))
+    except Exception: return []
+
+def save_promos(d): PROMOS.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8")
 
 
 def register_user(user):
@@ -154,8 +163,8 @@ def button_content_text(b):
 async def start(update, context):
     uid=update.effective_user.id; register_user(update.effective_user); langs.setdefault(uid,"ru")
     kb=InlineKeyboardMarkup([
-      [InlineKeyboardButton("🇷🇺 Русский",callback_data="l_ru"),InlineKeyboardButton("🇺🇦 Українська",callback_data="l_uk")],
-      [InlineKeyboardButton("🇵🇱 Polski",callback_data="l_pl"),InlineKeyboardButton("🇬🇧 English",callback_data="l_en")],
+      [InlineKeyboardButton("🇺🇦 Українська",callback_data="l_uk"),InlineKeyboardButton("🇵🇱 Polski",callback_data="l_pl")],
+      [InlineKeyboardButton("🇬🇧 English",callback_data="l_en"),InlineKeyboardButton("🇷🇺 Русский",callback_data="l_ru")],
       [InlineKeyboardButton("🔞 18+ — подтвердить",callback_data="age")]])
     await update.message.reply_text("VYBEX\n\n"+t(uid,"age"),reply_markup=kb)
 
@@ -168,6 +177,7 @@ async def admin(update,context):
       [InlineKeyboardButton("🗑 Удалить товар",callback_data="a_delete")],
       [InlineKeyboardButton("🧩 Конструктор кнопок",callback_data="b_menu")],
       [InlineKeyboardButton("📣 Реклама",callback_data="ad_menu")],
+      [InlineKeyboardButton("🏷️ Акции",callback_data="promo_menu")],
     ])
     await update.message.reply_text("⚙️ Админ-панель",reply_markup=kb)
 
@@ -196,6 +206,7 @@ async def cb(update,context):
             [InlineKeyboardButton("🗑 Видалити товар",callback_data="a_delete")],
             [InlineKeyboardButton("🧩 Конструктор кнопок",callback_data="b_menu")],
             [InlineKeyboardButton("📣 Реклама",callback_data="ad_menu")],
+            [InlineKeyboardButton("🏷️ Акции",callback_data="promo_menu")],
         ])); return
     if d.startswith("l_"):
         langs[uid]=d[2:]; await q.edit_message_text("VYBEX",reply_markup=main(uid)); return
@@ -203,10 +214,10 @@ async def cb(update,context):
         await q.edit_message_text("VYBEX\n\n"+t(uid,"age"),reply_markup=main(uid)); return
     if d=="catalog":
         kb=[[InlineKeyboardButton(c,callback_data=f"c:{i}")] for i,c in enumerate(data()["categories"])]
-        kb += [[InlineKeyboardButton(t(uid,"manager"),callback_data="manager")],[InlineKeyboardButton(t(uid,"lang"),callback_data="langs")]]
+        kb += [[InlineKeyboardButton("🛒 Мій список",callback_data="cart")],[InlineKeyboardButton("🏷️ Акції",callback_data="promos")],[InlineKeyboardButton(t(uid,"manager"),callback_data="manager")],[InlineKeyboardButton(t(uid,"lang"),callback_data="langs")]]
         await q.edit_message_text(t(uid,"cat"),reply_markup=InlineKeyboardMarkup(kb)); return
     if d=="langs":
-        await q.edit_message_text(t(uid,"lang"),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇷🇺",callback_data="l_ru"),InlineKeyboardButton("🇺🇦",callback_data="l_uk")],[InlineKeyboardButton("🇵🇱",callback_data="l_pl"),InlineKeyboardButton("🇬🇧",callback_data="l_en")]])); return
+        await q.edit_message_text(t(uid,"lang"),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🇺🇦",callback_data="l_uk"),InlineKeyboardButton("🇵🇱",callback_data="l_pl")],[InlineKeyboardButton("🇬🇧",callback_data="l_en"),InlineKeyboardButton("🇷🇺",callback_data="l_ru")]])); return
     if d.startswith("c:"):
         cat=data()["categories"][int(d[2:])]
         products=[p for p in data()["products"] if p["category"]==cat and p.get("active",True)]
@@ -218,7 +229,7 @@ async def cb(update,context):
         p=next((x for x in data()["products"] if x["id"]==d[2:]),None)
         if not p: return
         text=f"📦 {p['name']}\n\n{p.get('description','')}\n\n{t(uid,'info')}"
-        await q.message.reply_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(uid,"manager"),callback_data=f"m:{p['id']}")]]))
+        await q.message.reply_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Додати до списку",callback_data=f"add:{p['id']}" )],[InlineKeyboardButton("🛒 Мій список",callback_data="cart")],[InlineKeyboardButton(t(uid,"manager"),callback_data=f"m:{p['id']}")]]))
         if p.get("photo"):
             try: await q.message.reply_photo(p["photo"],caption=p["name"])
             except: pass
@@ -227,6 +238,39 @@ async def cb(update,context):
         forms[uid]={"step":"name","product":d[2:]}; await q.edit_message_text(t(uid,"name")); return
     if d=="manager":
         forms[uid]={"step":"name","product":""}; await q.edit_message_text(t(uid,"name")); return
+    if d.startswith("add:"):
+        pid=d[4:]; p=next((x for x in data()["products"] if x["id"]==pid),None)
+        if p:
+            carts.setdefault(uid,[])
+            carts[uid].append(pid)
+            await q.answer("Додано до списку",show_alert=False)
+        return
+    if d=="cart":
+        items=carts.get(uid,[])
+        products=data()["products"]
+        names=[next((p["name"] for p in products if p["id"]==pid),pid) for pid in items]
+        if not names:
+            await q.edit_message_text("🛒 Мій список порожній.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад",callback_data="catalog")]])); return
+        text="🛒 Мій список\n\n"+"\n".join(f"• {n}" for n in names)+"\n\nЦе список для узгодження з менеджером."
+        await q.edit_message_text(text,reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💬 Передати менеджеру",callback_data="cart_manager")],[InlineKeyboardButton("🗑 Очистити список",callback_data="cart_clear")],[InlineKeyboardButton("◀️ Назад",callback_data="catalog")]])); return
+    if d=="cart_clear":
+        carts[uid]=[]
+        await q.edit_message_text("🗑 Список очищено.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Каталог",callback_data="catalog")]])); return
+    if d=="cart_manager":
+        items=carts.get(uid,[])
+        if not items:
+            await q.answer("Список порожній",show_alert=True); return
+        forms[uid]={"step":"name","product":"CART","cart":items[:]}
+        await q.edit_message_text(t(uid,"name")); return
+    if d=="promos":
+        promos=[x for x in load_promos() if x.get("active",True)]
+        if not promos:
+            await q.edit_message_text("🏷️ Акцій зараз немає.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад",callback_data="catalog")]])); return
+        for pr in promos:
+            txt="🏷️ "+pr.get("title","")+"\n\n"+pr.get("text","")
+            await q.message.reply_text(txt)
+        await q.message.reply_text("🏷️ Акції",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад",callback_data="catalog")]])); return
+
     if d.startswith("custom_back:"):
         target=d.split(":",1)[1]
         if target=="root": await q.edit_message_text("VYBEX",reply_markup=main(uid)); return
@@ -275,6 +319,29 @@ async def cb(update,context):
                     if str(b.get("parent_id")) in ids and str(b.get("id")) not in ids: ids.add(str(b.get("id"))); changed=True
             new=[b for b in bs if str(b.get("id")) not in ids]; save_buttons(new)
             await q.edit_message_text("🗑 Кнопка и её вложенные кнопки удалены.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ К конструктору",callback_data="b_menu")]])); return
+        if d=="promo_menu":
+            promos=load_promos()
+            rows=[[InlineKeyboardButton("➕ Створити акцію",callback_data="promo_add")]]
+            for pr in promos:
+                rows.append([InlineKeyboardButton(("🟢 " if pr.get("active",True) else "🔴 ")+pr.get("title",""),callback_data=f"promo_open:{pr['id']}")])
+            rows.append([InlineKeyboardButton("◀️ Адмін-панель",callback_data="admin_back")])
+            await q.edit_message_text("🏷️ Управління акціями",reply_markup=InlineKeyboardMarkup(rows)); return
+        if d=="promo_add":
+            admin_state[uid]={"step":"promo_title"}; await q.edit_message_text("Введіть назву акції:"); return
+        if d.startswith("promo_open:"):
+            pid=d.split(":",1)[1]; pr=next((x for x in load_promos() if x.get("id")==pid),None)
+            if not pr: return
+            await q.edit_message_text("🏷️ "+pr.get("title","")+"\n\n"+pr.get("text","")+f"\n\nСтатус: {'🟢 активна' if pr.get('active',True) else '🔴 вимкнена'}",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✏️ Редагувати текст",callback_data=f"promo_edit:{pid}")],[InlineKeyboardButton("⏯ Увімк./вимк.",callback_data=f"promo_toggle:{pid}")],[InlineKeyboardButton("🗑 Видалити",callback_data=f"promo_del:{pid}")],[InlineKeyboardButton("◀️ Назад",callback_data="promo_menu")]])); return
+        if d.startswith("promo_edit:"):
+            pid=d.split(":",1)[1]; admin_state[uid]={"step":"promo_edit","promo_id":pid}; await q.edit_message_text("Введіть новий текст акції:"); return
+        if d.startswith("promo_toggle:"):
+            pid=d.split(":",1)[1]; ps=load_promos()
+            for pr in ps:
+                if pr.get("id")==pid: pr["active"]=not pr.get("active",True)
+            save_promos(ps); await q.edit_message_text("Статус акції змінено.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад",callback_data="promo_menu")]])); return
+        if d.startswith("promo_del:"):
+            pid=d.split(":",1)[1]; save_promos([x for x in load_promos() if x.get("id")!=pid]); await q.edit_message_text("🗑 Акцію видалено.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад",callback_data="promo_menu")]])); return
+
         if d=="ad_menu":
             ad=load_broadcast(); status="🟢 включена" if ad.get("enabled") else "🔴 выключена"
             kb=InlineKeyboardMarkup([
@@ -293,7 +360,7 @@ async def cb(update,context):
             save_broadcast({"enabled":False,"time":"20:00","text":"","video":None}); schedule_broadcast(context.application)
             await q.edit_message_text("🗑 Ежедневная рассылка удалена.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад",callback_data="ad_menu")]])); return
         if d=="admin_back":
-            await q.edit_message_text("⚙️ Админ-панель",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🧩 Конструктор кнопок",callback_data="b_menu")],[InlineKeyboardButton("📣 Реклама",callback_data="ad_menu")]])); return
+            await q.edit_message_text("⚙️ Админ-панель",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🧩 Конструктор кнопок",callback_data="b_menu")],[InlineKeyboardButton("📣 Реклама",callback_data="ad_menu")],[InlineKeyboardButton("🏷️ Акції",callback_data="promo_menu")]])); return
         if d.startswith("ad_video_yes"):
             admin_state[uid]["step"]="ad_video"; await q.edit_message_text("Отправьте видео. Если видео не нужно, отправьте /skip:"); return
         if d.startswith("ad_video_no"):
@@ -313,6 +380,17 @@ async def text(update,context):
     uid=update.effective_user.id; msg=update.message
     if is_admin(uid) and uid in admin_state:
         st=admin_state[uid]; d=data(); step=st["step"]
+        if step=="promo_title":
+            st["title"]=msg.text.strip(); st["step"]="promo_text"; await msg.reply_text("Введіть текст акції:"); return
+        if step=="promo_text":
+            ps=load_promos(); nums=[int(x.get("id")) for x in ps if str(x.get("id","")).isdigit()]; pid=str(max(nums or [0])+1)
+            ps.append({"id":pid,"title":st["title"],"text":msg.text,"active":True}); save_promos(ps); admin_state.pop(uid,None); await msg.reply_text("✅ Акцію створено."); return
+        if step=="promo_edit":
+            ps=load_promos(); pid=st["promo_id"]
+            for pr in ps:
+                if pr.get("id")==pid: pr["text"]=msg.text
+            save_promos(ps); admin_state.pop(uid,None); await msg.reply_text("✅ Акцію оновлено."); return
+
         if step=="button_label":
             st["label"]=msg.text.strip(); await finish_button(uid,msg); return
         if step=="button_label_edit":
@@ -396,12 +474,17 @@ async def send_lead(update,context,f):
     if not manager_id:
         await update.message.reply_text("Менеджер ещё не подключён. Пусть аккаунт @manager_VYBEX один раз откроет бота и нажмёт /start."); forms.pop(uid,None); return
     p=next((x for x in data()["products"] if x["id"]==f["product"]),None)
-    text=(f"🔔 НОВАЯ ЗАЯВКА НА ЛИЧНУЮ ВСТРЕЧУ\n\nИмя: {f['name']}\nТелефон: {f['phone']}\nРайон: {f.get('district','')}\nТовар: {p['name'] if p else f.get('interest','')}\nTelegram: @{update.effective_user.username or 'нет'}\nID: {uid}")
-    await context.bot.send_message(chat_id=manager_id,text=text); await update.message.reply_text(t(uid,"sent")); forms.pop(uid,None)
+    if f.get("product")=="CART":
+        names=[next((x["name"] for x in data()["products"] if x["id"]==pid),pid) for pid in f.get("cart",[])]
+        item_text="\n".join("• "+n for n in names)
+    else:
+        item_text=p["name"] if p else f.get("interest","")
+    text=(f"🔔 НОВАЯ ЗАЯВКА НА ЛИЧНУЮ ВСТРЕЧУ\n\nИмя: {f['name']}\nТелефон: {f['phone']}\nРайон: {f.get('district','')}\nТовар(и): {item_text}\nTelegram: @{update.effective_user.username or 'нет'}\nID: {uid}")
+    await context.bot.send_message(chat_id=manager_id,text=text); await update.message.reply_text(t(uid,"sent")); forms.pop(uid,None); carts[uid]=[]
 
 
 def main(uid):
-    rows=[[InlineKeyboardButton(LANGS[langs.get(uid,"ru")]["cat"],callback_data="catalog")],[InlineKeyboardButton(LANGS[langs.get(uid,"ru")]["manager"],callback_data="manager")],[InlineKeyboardButton(LANGS[langs.get(uid,"ru")]["lang"],callback_data="langs")]]
+    rows=[[InlineKeyboardButton(LANGS[langs.get(uid,"ru")]["cat"],callback_data="catalog")],[InlineKeyboardButton("🛒 Мій список",callback_data="cart"),InlineKeyboardButton("🏷️ Акції",callback_data="promos")],[InlineKeyboardButton(LANGS[langs.get(uid,"ru")]["manager"],callback_data="manager")],[InlineKeyboardButton(LANGS[langs.get(uid,"ru")]["lang"],callback_data="langs")]]
     for b in root_buttons(): rows.append([InlineKeyboardButton(b["label"],callback_data=f"custom:{b['id']}")])
     # Admin button is visible only to the fixed Telegram user ID 829871240.
     if str(uid)==ADMIN_ID:
