@@ -1,18 +1,36 @@
-# VYBEX — auto-registration admin/manager
+# VYBEX — no-code buttons, nested content and admin announcements
 
-This version keeps the no-code catalog and automatically registers the admin and manager by Telegram username when they press `/start`.
-
-## Railway Variables
-- `BOT_TOKEN` — your existing bot token (do not paste it into chat)
+## Admin / manager registration
 - `ADMIN_USERNAME=fvmfm1`
 - `MANAGER_USERNAME=manager_VYBEX`
-- `ADMIN_ID` and `MANAGER_CHAT_ID` are optional legacy fallbacks.
+- `BOT_TOKEN` remains your existing Railway secret; do not paste it into chat.
+- Optional legacy `ADMIN_ID` / `MANAGER_CHAT_ID` are still supported.
 
-## First launch
-1. Deploy this version.
-2. From the admin account `@fvmfm1`, open `@VYBEXtabBot` and send `/start`.
-3. From the manager account `@manager_VYBEX`, open `@VYBEXtabBot` and send `/start`.
-4. The manager does not need to enter a numeric chat ID.
-5. The admin can open `/admin` and manage the catalog.
+Both admin and manager should open `@VYBEXtabBot` and press `/start` once.
 
-The bot stores registrations in `users.json`. Railway's normal filesystem can be reset on some redeploys/restarts, so for a production version use a persistent database/volume.
+## No-code button builder
+Admin → `/admin` → `🧩 Конструктор кнопок`.
+
+You can:
+- create main buttons;
+- open any button in `📋 Управление кнопками`;
+- add nested buttons inside it;
+- add unlimited levels of nested buttons;
+- set or change text;
+- attach/change a Telegram video;
+- delete a button together with its nested children.
+
+Users see the created main buttons in the bot's main menu. Opening a button shows its text/video and nested buttons.
+
+## Daily admin-only announcements
+Admin → `/admin` → `📣 Реклама`.
+
+The admin can create an announcement with text and optional video, set a daily time in `HH:MM`, and enable/disable it. The schedule uses `Europe/Warsaw` time.
+
+Announcements are sent to registered ordinary users; admin and manager are excluded.
+
+## Persistence
+The bot stores `buttons.json`, `broadcast.json`, `users.json`, and `catalog.json` locally. Railway's normal filesystem can be reset on some redeploys/restarts. For production, use a persistent volume or database.
+
+
+ADMIN BUTTON: The ⚙️ Адмін button is shown only to Telegram user ID 829871240. The /admin command is also restricted to this exact ID.
