@@ -1,18 +1,25 @@
-# VYBEX — no-code catalog, nested buttons, lists and admin promos
+# VYBEX Telegram Bot
 
-Features:
-- Admin is fixed to Telegram user ID 829871240.
-- Admin button and /admin are hidden/blocked for everyone else.
-- Product catalog with photos.
-- User can add products to a personal list and send the list to the manager for an in-person inquiry.
-- Informational promotions managed by admin (create/edit/enable/disable/delete).
-- Nested custom buttons with text/video.
-- Daily informational broadcast managed by admin.
-- Manager registration by @manager_VYBEX after /start.
+Исправленная версия бота для Telegram.
 
-This build does not include online checkout, card/BLIK payment collection, payment credentials, delivery ordering, or automated nicotine-product sales.
+## Что исправлено
+- Исправлен главный callback-баг: `q` теперь создаётся до обращения к `q.data`.
+- Работает кнопка **➕ Добавить товар**.
+- Добавление товара: название → категория → описание → фото или «Пропустить».
+- Если нужной категории нет, её можно создать прямо из бота.
+- Работают **📋 Товары** и **🗑 Удалить товар**.
+- Работает конструктор кнопок: создание, вложенные кнопки, редактирование названия/текста/фото/видео, удаление.
+- «Пропустить» работает и кнопкой, и командой `/skip`.
+- Работают акции: создание, текст, фото, видео, включение/выключение и удаление.
+- Работает ежедневная информационная рассылка с временем по Варшаве.
+- Админ доступен только Telegram ID `829871240`.
+- Менеджер автоматически регистрируется после `/start`, если его username совпадает с `MANAGER_USERNAME`.
+- Каталог остаётся информационным: без онлайн-оплаты, карточных/BLIK-данных, заказа доставки и автоматизированной дистанционной продажи никотиновой продукции.
 
 ## Railway variables
-BOT_TOKEN=your-existing-token
-MANAGER_USERNAME=manager_VYBEX
-ADMIN_USERNAME=fvmfm1
+- `BOT_TOKEN` — токен бота, добавляется только в Railway Variables.
+- `MANAGER_USERNAME=manager_VYBEX`
+- `ADMIN_USERNAME=fvmfm1`
+- `MANAGER_CHAT_ID` — необязательно.
+
+Никогда не публикуйте `BOT_TOKEN` в GitHub или в чатах.
